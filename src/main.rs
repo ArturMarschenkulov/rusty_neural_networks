@@ -179,8 +179,11 @@ fn update_params(
     d_2: &WeightAndBias,
     alpha: f64,
 ) -> (WeightAndBias, WeightAndBias) {
+    // 1th layer (hidden)
     let weight_1 = l_1.weight.clone() - d_1.weight.clone() * alpha;
     let bias_1 = l_1.bias.clone() - d_1.bias.clone() * alpha;
+
+    // 2th layer (output)
     let weight_2 = l_2.weight.clone() - d_2.weight.clone() * alpha;
     let bias_2 = l_2.bias.clone() - d_2.bias.clone() * alpha;
 
@@ -202,15 +205,14 @@ fn init_params() -> (WeightAndBias, WeightAndBias) {
     let mut rng = rand::thread_rng();
     let range = -0.5..=0.5;
 
-    // 0th layer
+    // 1th layer (hidden)
     let weight_1 = nd::Array2::<f64>::zeros((10, 784)).map(|_| rng.gen_range(range.clone()));
     let bias_1 = nd::Array2::<f64>::zeros((10, 1)).map(|_| rng.gen_range(range.clone()));
 
-    // 1rst layer
+    // 2th layer (output)
     let weight_2 = nd::Array2::<f64>::zeros((10, 10)).map(|_| rng.gen_range(range.clone()));
     let bias_2 = nd::Array2::<f64>::zeros((10, 1)).map(|_| rng.gen_range(range.clone()));
 
-    // (weight_1, bias_1), (weight_2, bias_2))
     (
         WeightAndBias {
             weight: weight_1,
