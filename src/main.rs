@@ -76,18 +76,27 @@ fn softmax(z: &nd::Array2<f64>) -> nd::Array2<f64> {
     e / sum
 }
 
+struct WeightAndBias {
+    weight: nd::Array2<f64>,
+    bias: nd::Array2<f64>,
+}
+struct ZAndA {
+    z: nd::Array2<f64>,
+    a: nd::Array2<f64>,
+}
 fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterations: usize) -> () {
-    let (mut w_1, mut b_1, mut w_2, mut b_2) = init_params();
+    let (mut l_1, mut l_2) = init_params();
     let mut max_accuracy = 0.0;
     let mut curr_milestone = 0.0;
     let milestones = [0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99];
     for i in 0..iterations {
-        let (z_1, a_1, z_2, a_2) = forward_prop(&w_1, &b_1, &w_2, &b_2, x);
-        let (dw_1, db_1, dw_2, db_2) = backward_prop(&z_1, &a_1, &z_2, &a_2, &w_1, &w_2, x, y);
-        (w_1, b_1, w_2, b_2) =
-            update_params(&w_1, &b_1, &w_2, &b_2, &dw_1, &db_1, &dw_2, &db_2, alpha);
+        // let a_0 = x.map(|x| *x);
 
-        let prediction = get_predictions(&a_2);
+        let (za_1, za_2) = forward_prop(&l_1, &l_2, x);
+        let (d_1, d_2) = backward_prop(&za_1, &za_2, &l_1.weight, &l_2.weight, x, y);
+        (l_1, l_2) = update_params(&l_1, &l_2, &d_1, &d_2, alpha);
+
+        let prediction = get_predictions(&za_2.a);
         let accuracy = get_accuracy(&prediction, y);
         if accuracy > max_accuracy {
             max_accuracy = accuracy;
@@ -110,98 +119,108 @@ fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterat
     // (w_1, b_1, w_2, b_2)
 }
 
-fn forward_prop(
-    w_1: &nd::Array2<f64>,
-    b_1: &nd::Array2<f64>,
-    w_2: &nd::Array2<f64>,
-    b_2: &nd::Array2<f64>,
-    x: &nd::Array2<f64>,
-) -> (
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-) {
+fn forward_prop(l_1: &WeightAndBias, l_2: &WeightAndBias, x: &nd::Array2<f64>) -> (ZAndA, ZAndA) {
     let act = LEAKY_RELU;
-    // 0th layer (input)
-    let z_1 = w_1.dot(x) + b_1;
+    // 1th layer (hidden)
+    let z_1 = l_1.weight.dot(x) + l_1.bias.clone();
     let a_1 = z_1.map(|x| (act.function)(*x));
 
-    // 1rst layer (hidden)
-    let z_2 = w_2.dot(&a_1) + b_2;
+    // 2th layer (output)
+    let z_2 = l_2.weight.dot(&a_1) + l_2.bias.clone();
     let a_2 = softmax(&z_2);
 
-    (z_1, a_1, z_2, a_2)
+    (ZAndA { z: z_1, a: a_1 }, ZAndA { z: z_2, a: a_2 })
 }
 
 fn backward_prop(
-    z_1: &nd::Array2<f64>,
-    a_1: &nd::Array2<f64>,
-    z_2: &nd::Array2<f64>,
-    a_2: &nd::Array2<f64>,
+    za_1: &ZAndA,
+    za_2: &ZAndA,
     w_1: &nd::Array2<f64>,
     w_2: &nd::Array2<f64>,
     x: &nd::Array2<f64>,
     y: &nd::Array1<u64>,
-) -> (nd::Array2<f64>, f64, nd::Array2<f64>, f64) {
+) -> (WeightAndBias, WeightAndBias) {
     let m = 784.0;
     let act = LEAKY_RELU;
 
     // 1rst layer (hidden)
-    let dz_2 = a_2 - one_hot(y);
-    let dw_2 = dz_2.dot(&a_1.t()) / m as f64;
-    let db_2 = dz_2.sum() / m;
+    let dz_2 = za_2.a.clone() - one_hot(y);
+    let dw_2 = dz_2.dot(&za_1.a.t()) / m as f64;
+    let db_2 = dz_2
+        .sum_axis(nd::Axis(1))
+        .into_shape((dz_2.shape()[0], 1))
+        .unwrap()
+        / m;
 
     // 0th layer (input)
-    let dz_1 = w_2.t().dot(&dz_2) * z_1.map(|x| (act.derivative)(*x));
+    let dz_1 = w_2.t().dot(&dz_2) * za_1.z.map(|x| (act.derivative)(*x));
     let dw_1 = dz_1.dot(&x.t()) / m as f64;
-    let db_1 = dz_1.sum() / m;
+    let db_1 = dz_1
+        .sum_axis(nd::Axis(1))
+        .into_shape((dz_1.shape()[0], 1))
+        .unwrap()
+        / m;
 
-    (dw_1, db_1, dw_2, db_2)
+    (
+        WeightAndBias {
+            weight: dw_1,
+            bias: db_1,
+        },
+        WeightAndBias {
+            weight: dw_2,
+            bias: db_2,
+        },
+    )
 }
 fn update_params(
-    w_1: &nd::Array2<f64>,
-    b_1: &nd::Array2<f64>,
-    w_2: &nd::Array2<f64>,
-    b_2: &nd::Array2<f64>,
-    dw_1: &nd::Array2<f64>,
-    db_1: &f64,
-    dw_2: &nd::Array2<f64>,
-    db_2: &f64,
+    l_1: &WeightAndBias,
+    l_2: &WeightAndBias,
+    d_1: &WeightAndBias,
+    d_2: &WeightAndBias,
     alpha: f64,
-) -> (
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-) {
-    let w_1 = w_1 - dw_1 * alpha;
-    let b_1 = b_1 - db_1 * alpha;
-    let w_2 = w_2 - dw_2 * alpha;
-    let b_2 = b_2 - db_2 * alpha;
-    (w_1, b_1, w_2, b_2)
+) -> (WeightAndBias, WeightAndBias) {
+    let weight_1 = l_1.weight.clone() - d_1.weight.clone() * alpha;
+    let bias_1 = l_1.bias.clone() - d_1.bias.clone() * alpha;
+    let weight_2 = l_2.weight.clone() - d_2.weight.clone() * alpha;
+    let bias_2 = l_2.bias.clone() - d_2.bias.clone() * alpha;
+
+    (
+        WeightAndBias {
+            weight: weight_1,
+            bias: bias_1,
+        },
+        WeightAndBias {
+            weight: weight_2,
+            bias: bias_2,
+        },
+    )
 }
 
-fn init_params() -> (
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-    nd::Array2<f64>,
-) {
+fn init_params() -> (WeightAndBias, WeightAndBias) {
     use rand::Rng;
 
     let mut rng = rand::thread_rng();
     let range = -0.5..=0.5;
 
-    // 0th layer (input)
+    // 0th layer
     let weight_1 = nd::Array2::<f64>::zeros((10, 784)).map(|_| rng.gen_range(range.clone()));
     let bias_1 = nd::Array2::<f64>::zeros((10, 1)).map(|_| rng.gen_range(range.clone()));
 
-    // 1rst layer (hidden)
+    // 1rst layer
     let weight_2 = nd::Array2::<f64>::zeros((10, 10)).map(|_| rng.gen_range(range.clone()));
     let bias_2 = nd::Array2::<f64>::zeros((10, 1)).map(|_| rng.gen_range(range.clone()));
 
-    (weight_1, bias_1, weight_2, bias_2)
+    // (weight_1, bias_1), (weight_2, bias_2))
+    (
+        WeightAndBias {
+            weight: weight_1,
+            bias: bias_1,
+        },
+        WeightAndBias {
+            weight: weight_2,
+            bias: bias_2,
+        },
+    )
 }
 
 fn get_mnist_data_2() -> ndarray::Array2<f64> {
