@@ -1,7 +1,6 @@
-mod t;
+// mod t;
 
 use ndarray as nd;
-use rand::distributions::weighted::alias_method::Weight;
 
 fn one_hot(y: &nd::Array1<u64>) -> nd::Array2<f64> {
     let y_size = y.len_of(nd::Axis(0));
@@ -81,36 +80,49 @@ fn softmax(z: &nd::Array2<f64>) -> nd::Array2<f64> {
     e / sum
 }
 
+#[derive(Clone)]
 struct WeightAndBias {
     weight: nd::Array2<f64>,
     bias: nd::Array2<f64>,
 }
+
+#[derive(Clone)]
 struct ZAndA {
     z: nd::Array2<f64>,
     a: nd::Array2<f64>,
 }
 fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterations: usize) -> () {
-    let (mut wb_1, mut wb_2, mut wb_3) = init_params();
+    let mut wbs = init_params();
     let mut max_accuracy = 0.0;
     let mut curr_milestone = 0.0;
     let milestones = [0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99];
     for i in 0..iterations {
         // let a_0 = x.map(|x| *x);
 
-        let (perceptrons_1, perceptrons_2, mut perceptrons_3) =
-            forward_prop(&wb_1, &wb_2, &wb_3, x);
+        let perceptrons = forward_prop(&wbs, x);
         // perceptrons_3.a = softmax(&perceptrons_3.z);
 
-        let (dwb_1, dwb_2, dwb_3) = backward_prop(
-            (&perceptrons_1, &wb_1.weight),
-            (&perceptrons_2, &wb_2.weight),
-            (&perceptrons_3, &wb_3.weight),
-            x,
-            y,
-        );
-        (wb_1, wb_2, wb_3) = update_params(&wb_1, &wb_2, &wb_3, &dwb_1, &dwb_2, &dwb_3, alpha);
+        // zip wbs and perceptrons together into a vec of tuples. However wbs should only include its `weight` field
+        let zipped = wbs
+            .iter()
+            .zip(perceptrons.iter())
+            .map(|(wb, perceptron)| (perceptron.clone(), wb.weight.clone()))
+            .collect::<Vec<_>>();
 
-        let prediction = get_predictions(&perceptrons_3.a);
+        assert_eq!(zipped.len(), 3);
+
+        let dwbs = backward_prop(&zipped, x, y);
+        assert_eq!(dwbs.len(), 3);
+        let zipped_lbs = wbs
+            .iter()
+            .zip(dwbs.iter())
+            .map(|(wb, dwb)| (wb.clone(), dwb.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(zipped_lbs.len(), 3);
+        wbs = update_params(&zipped_lbs, alpha);
+        assert_eq!(wbs.len(), 3);
+
+        let prediction = get_predictions(&perceptrons.last().unwrap().a);
         let accuracy = get_accuracy(&prediction, y);
         if accuracy > max_accuracy {
             max_accuracy = accuracy;
@@ -133,14 +145,14 @@ fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterat
     // (w_1, b_1, w_2, b_2)
 }
 
-fn forward_prop(
-    l_1: &WeightAndBias,
-    l_2: &WeightAndBias,
-    l_3: &WeightAndBias,
-    x: &nd::Array2<f64>,
-) -> (ZAndA, ZAndA, ZAndA) {
+fn forward_prop(wbs: &Vec<WeightAndBias>, x: &nd::Array2<f64>) -> Vec<ZAndA> {
     let act = LEAKY_RELU;
-    let act_2 = IDENTITY;
+
+    assert_eq!(wbs.len(), 3);
+    let l_1 = &wbs[0];
+    let l_2 = &wbs[1];
+    let l_3 = &wbs[2];
+
     // 1th layer (hidden)
     let perceptrons_u_1 = l_1.weight.dot(x) + l_1.bias.clone();
     let perceptrons_a_1 = perceptrons_u_1.map(|x| (act.function)(*x));
@@ -151,10 +163,10 @@ fn forward_prop(
 
     // 3th layer (output)
     let perceptrons_u_3 = l_3.weight.dot(&perceptrons_a_2) + l_3.bias.clone();
-    let perceptrons_a_3 = perceptrons_u_3.map(|x| (act_2.function)(*x));
+    // let perceptrons_a_3 = perceptrons_u_3.map(|x| (act.function)(*x));
     let perceptrons_a_3 = softmax(&perceptrons_u_3);
 
-    (
+    vec![
         ZAndA {
             z: perceptrons_u_1,
             a: perceptrons_a_1,
@@ -167,16 +179,22 @@ fn forward_prop(
             z: perceptrons_u_3,
             a: perceptrons_a_3,
         },
-    )
+    ]
 }
 
 fn backward_prop(
-    zaw_1: (&ZAndA, &nd::Array2<f64>),
-    zaw_2: (&ZAndA, &nd::Array2<f64>),
-    zaw_3: (&ZAndA, &nd::Array2<f64>),
+    zaws: &Vec<(ZAndA, nd::Array2<f64>)>,
     x: &nd::Array2<f64>,
     y: &nd::Array1<u64>,
-) -> (WeightAndBias, WeightAndBias, WeightAndBias) {
+) -> Vec<WeightAndBias> {
+    let m = 784.0;
+    let act = LEAKY_RELU;
+
+    assert_eq!(zaws.len(), 3);
+    let zaw_1 = &zaws[0];
+    let zaw_2 = &zaws[1];
+    let zaw_3 = &zaws[2];
+
     let m = 784.0;
     let act = LEAKY_RELU;
 
@@ -207,7 +225,7 @@ fn backward_prop(
         .unwrap()
         / m;
 
-    (
+    vec![
         WeightAndBias {
             weight: dw_1,
             bias: db_1,
@@ -220,7 +238,7 @@ fn backward_prop(
             weight: dw_3,
             bias: db_3,
         },
-    )
+    ]
 }
 
 struct Perceptron {
@@ -228,15 +246,15 @@ struct Perceptron {
     bias: nd::Array2<f64>,
     value: nd::Array2<f64>,
 }
-fn update_params(
-    l_1: &WeightAndBias,
-    l_2: &WeightAndBias,
-    l_3: &WeightAndBias,
-    d_1: &WeightAndBias,
-    d_2: &WeightAndBias,
-    d_3: &WeightAndBias,
-    alpha: f64,
-) -> (WeightAndBias, WeightAndBias, WeightAndBias) {
+fn update_params(lds: &Vec<(WeightAndBias, WeightAndBias)>, alpha: f64) -> Vec<WeightAndBias> {
+    assert_eq!(lds.len(), 3);
+    let l_1 = &lds[0].0;
+    let l_2 = &lds[1].0;
+    let l_3 = &lds[2].0;
+    let d_1 = &lds[0].1;
+    let d_2 = &lds[1].1;
+    let d_3 = &lds[2].1;
+
     // 1th layer (hidden)
     let weight_1 = l_1.weight.clone() - d_1.weight.clone() * alpha;
     let bias_1 = l_1.bias.clone() - d_1.bias.clone() * alpha;
@@ -249,7 +267,7 @@ fn update_params(
     let weight_3 = l_3.weight.clone() - d_3.weight.clone() * alpha;
     let bias_3 = l_3.bias.clone() - d_3.bias.clone() * alpha;
 
-    (
+    vec![
         WeightAndBias {
             weight: weight_1,
             bias: bias_1,
@@ -262,51 +280,7 @@ fn update_params(
             weight: weight_3,
             bias: bias_3,
         },
-    )
-}
-
-fn init_params() -> (WeightAndBias, WeightAndBias, WeightAndBias) {
-    use rand::Rng;
-
-    let mut rng = rand::thread_rng();
-    let range = -0.5..=0.5;
-
-    // (n, m) m would be the amount of neurons on the left, while n would be the amount of neurons on the right
-
-    let layer_0_num = 784;
-    let layer_1_num = 10;
-    let layer_2_num = 50;
-    let layer_3_num = 10;
-
-    // 1th layer (hidden)
-    let weight_1 =
-        nd::Array2::<f64>::zeros((layer_1_num, layer_0_num)).map(|_| rng.gen_range(range.clone()));
-    let bias_1 = nd::Array2::<f64>::zeros((layer_1_num, 1)).map(|_| rng.gen_range(range.clone()));
-
-    // 2th layer (output)
-    let weight_2 =
-        nd::Array2::<f64>::zeros((layer_2_num, layer_1_num)).map(|_| rng.gen_range(range.clone()));
-    let bias_2 = nd::Array2::<f64>::zeros((layer_2_num, 1)).map(|_| rng.gen_range(range.clone()));
-
-    // 3th layer (output)
-    let weight_3 =
-        nd::Array2::<f64>::zeros((layer_3_num, layer_2_num)).map(|_| rng.gen_range(range.clone()));
-    let bias_3 = nd::Array2::<f64>::zeros((layer_3_num, 1)).map(|_| rng.gen_range(range.clone()));
-
-    (
-        WeightAndBias {
-            weight: weight_1,
-            bias: bias_1,
-        },
-        WeightAndBias {
-            weight: weight_2,
-            bias: bias_2,
-        },
-        WeightAndBias {
-            weight: weight_3,
-            bias: bias_3,
-        },
-    )
+    ]
 }
 
 fn get_mnist_data_2() -> ndarray::Array2<f64> {
@@ -330,6 +304,28 @@ fn get_mnist_data_2() -> ndarray::Array2<f64> {
     res
 }
 
+fn init_params() -> Vec<WeightAndBias> {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let range = -0.5..=0.5;
+
+    let layers_num = [784, 10, 50, 10];
+
+    let mut wbs = Vec::new();
+
+    let mut i = 0;
+    while i < layers_num.len() - 1 {
+        let w = nd::Array2::<f64>::zeros((layers_num[i + 1], layers_num[i]))
+            .map(|_| rng.gen_range(range.clone()));
+        let b =
+            nd::Array2::<f64>::zeros((layers_num[i + 1], 1)).map(|_| rng.gen_range(range.clone()));
+        wbs.push(WeightAndBias { weight: w, bias: b });
+
+        i += 1;
+    }
+    wbs
+}
+
 fn main() {
     // Enable RUST_BACKTRACE=1 to see the backtrace
     std::env::set_var("RUST_BACKTRACE", "1");
@@ -347,11 +343,11 @@ fn main() {
     let mnist_pics_test = mnist_pics.slice(nd::s![0..dev_size, ..]);
 
     let data_test = mnist_pics_test.t();
-    let y_test = data_test.slice(nd::s![0, ..]);
+    let _y_test = data_test.slice(nd::s![0, ..]);
     let x_test = data_test.slice(nd::s![1..n, ..]);
     // println!("x_test: {:?}", x_test.shape());
     // return;
-    let x_test = x_test.map(|x| *x / 255.0);
+    let _x_test = x_test.map(|x| *x / 255.0);
 
     let mnist_pics_train = mnist_pics.slice(nd::s![dev_size..m as i32, ..]);
     let data_train = mnist_pics_train.t();
