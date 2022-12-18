@@ -1,5 +1,6 @@
-// mod t;
+mod activation;
 
+use crate::activation::*;
 use ndarray as nd;
 
 fn one_hot(y: &nd::Array1<u64>) -> nd::Array2<f64> {
@@ -11,41 +12,6 @@ fn one_hot(y: &nd::Array1<u64>) -> nd::Array2<f64> {
     }
     assert_eq!(one_hot_y.shape()[0], 10);
     one_hot_y
-}
-
-enum Activation {
-    Relu,
-    LeakyRelu,
-    Identity,
-    Sigmoid,
-    Tanh,
-    Softmax,
-}
-impl Activation {
-    fn forward(&self, x: &nd::Array2<f64>) -> nd::Array2<f64> {
-        match self {
-            Activation::Relu => x.map(|x| x.max(0.0)),
-            Activation::LeakyRelu => x.map(|x| if x > &0.0 { *x } else { 0.01 * *x }),
-            Activation::Identity => x.map(|x| *x),
-            Activation::Sigmoid => x.map(|x| 1.0 / (1.0 + std::f64::consts::E.powf(-*x))),
-            Activation::Tanh => x.map(|x| x.tanh()),
-            Activation::Softmax => softmax(x),
-        }
-    }
-    fn backward(&self, x: &nd::Array2<f64>) -> nd::Array2<f64> {
-        match self {
-            Activation::Relu => x.map(|x| if x > &0.0 { 1.0 } else { 0.0 }),
-            Activation::LeakyRelu => x.map(|x| if x > &0.0 { 1.0 } else { 0.01 }),
-            Activation::Identity => x.map(|_| 1.0),
-            Activation::Sigmoid => self.forward(x),
-            Activation::Tanh => x.map(|x| 1.0 - (x.powi(2))),
-            Activation::Softmax =>
-            /*x.map(|x| x * (1.0 - x))*/
-            {
-                unimplemented!()
-            }
-        }
-    }
 }
 
 fn argmax(a: &nd::Array2<f64>) -> nd::Array1<u64> {
@@ -79,11 +45,6 @@ fn get_accuracy(predictions: &nd::Array1<u64>, y: &nd::Array1<u64>) -> f64 {
     let true_count = bools.iter().filter(|x| **x).count();
     true_count as f64 / y.len() as f64
 }
-fn softmax(z: &nd::Array2<f64>) -> nd::Array2<f64> {
-    let e = z.map(|x| x.exp());
-    let sum = e.sum_axis(nd::Axis(0));
-    e / sum
-}
 
 #[derive(Debug, Clone, PartialEq)]
 struct WeightAndBias {
@@ -97,6 +58,12 @@ struct ZAndA {
     activated: nd::Array2<f64>,
 }
 fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterations: usize) {
+    let example_num = x.len_of(nd::Axis(1));
+    let data_inputs = x.len_of(nd::Axis(0));
+    let multiplier = data_inputs as f32 / example_num as f32;
+    println!("Example num: {}", example_num);
+    println!("Data inputs: {}", data_inputs);
+    println!("Multiplier: {}", multiplier);
     let mut weights_and_biases = init_params();
     let mut max_accuracy = 0.0;
     let curr_milestone = 0.0;
@@ -309,20 +276,24 @@ fn main() {
     let mnist_pics_test = mnist_pics.slice(nd::s![0..dev_size, ..]);
 
     let data_test = mnist_pics_test.t();
-    let _y_test = data_test.slice(nd::s![0, ..]);
-    let x_test = data_test.slice(nd::s![1..n, ..]);
-
-    let _x_test = x_test.map(|x| *x / 255.0);
+    let test_labels = data_test.slice(nd::s![0, ..]);
+    let test_pixels = data_test.slice(nd::s![1..n, ..]);
+    let test_pixels = test_pixels.map(|x| *x / 255.0);
 
     let mnist_pics_train = mnist_pics.slice(nd::s![dev_size..m as i32, ..]);
     let data_train = mnist_pics_train.t();
-    let y_train = data_train.slice(nd::s![0, ..]);
-    let x_train = data_train.slice(nd::s![1..n, ..]);
-    let x_train = x_train.map(|x| *x / 255.0);
+    let train_labels = data_train.slice(nd::s![0, ..]);
+    let train_pixels = data_train.slice(nd::s![1..n, ..]);
+    let train_pixels = train_pixels.map(|x| *x / 255.0);
 
-    println!("x_train: {:?}", x_train.shape());
-    println!("y_train: {:?}", y_train);
-    gradient_descent(&x_train, &y_train.map(|x| (*x as u64)), 0.01, 5000);
+    println!("x_train: {:?}", train_pixels.shape());
+    println!("y_train: {:?}", train_labels);
+    gradient_descent(
+        &train_pixels,
+        &train_labels.map(|x| (*x as u64)),
+        0.01,
+        5000,
+    );
 }
 
 /* Here are some learning resources.
