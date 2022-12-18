@@ -85,7 +85,7 @@ fn softmax(z: &nd::Array2<f64>) -> nd::Array2<f64> {
     e / sum
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct WeightAndBias {
     weight: nd::Array2<f64>,
     bias: nd::Array2<f64>,
@@ -100,6 +100,7 @@ fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterat
     let mut weights_and_biases = init_params();
     let mut max_accuracy = 0.0;
     let curr_milestone = 0.0;
+    let mut max_accuracy_iteration = 0;
     for i in 0..iterations {
         let perceptrons = forward_prop(&weights_and_biases, x);
 
@@ -122,12 +123,18 @@ fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterat
         let accuracy = get_accuracy(&prediction, y);
         if accuracy > max_accuracy {
             max_accuracy = accuracy;
+            max_accuracy_iteration = i;
         }
 
         if accuracy > curr_milestone {
             println!("Iteration: {}", i);
             println!("Accuracy: {}", accuracy);
-            println!("Max Accuracy: {}", max_accuracy);
+            println!(
+                "Max Accuracy: {} since {} (d {})",
+                max_accuracy,
+                max_accuracy_iteration,
+                i - max_accuracy_iteration
+            );
             println!("---------------------");
             // curr_milestone = milestones[curr_milestone as usize];
         }
@@ -143,43 +150,27 @@ fn gradient_descent(x: &nd::Array2<f64>, y: &nd::Array1<u64>, alpha: f64, iterat
 fn forward_prop(wbs: &Vec<WeightAndBias>, x: &nd::Array2<f64>) -> Vec<ZAndA> {
     let perceptrons_a_0 = x; // That is the input
 
-    let activation = Activation::LeakyRelu;
-    let activation_2 = Activation::Softmax;
+    let mut result = Vec::<ZAndA>::new();
+    let mut last_activated_perceptrons = perceptrons_a_0.clone();
+    for weights_and_biases in wbs {
+        let activation = if weights_and_biases == wbs.last().unwrap() {
+            Activation::Softmax
+        } else {
+            Activation::LeakyRelu
+        };
 
-    assert_eq!(wbs.len(), 3);
-    let weights_and_biases_1 = &wbs[0];
-    let weights_and_biases_2 = &wbs[1];
-    let weights_and_biases_3 = &wbs[2];
+        let perceptrons_u = weights_and_biases.weight.dot(&last_activated_perceptrons)
+            + weights_and_biases.bias.clone();
+        let perceptrons_a = activation.forward(&perceptrons_u);
 
-    // 1th layer (hidden)
-    let perceptrons_u_1 =
-        weights_and_biases_1.weight.dot(perceptrons_a_0) + weights_and_biases_1.bias.clone();
-    let perceptrons_a_1 = activation.forward(&perceptrons_u_1);
+        last_activated_perceptrons = perceptrons_a.clone();
 
-    // 2th layer (hidden)
-    let perceptrons_u_2 =
-        weights_and_biases_2.weight.dot(&perceptrons_a_1) + weights_and_biases_2.bias.clone();
-    let perceptrons_a_2 = activation.forward(&perceptrons_u_2);
-
-    // 3th layer (output)
-    let perceptrons_u_3 =
-        weights_and_biases_3.weight.dot(&perceptrons_a_2) + weights_and_biases_3.bias.clone();
-    let perceptrons_a_3 = activation_2.forward(&perceptrons_u_3);
-
-    vec![
-        ZAndA {
-            z: perceptrons_u_1,
-            a: perceptrons_a_1,
-        },
-        ZAndA {
-            z: perceptrons_u_2,
-            a: perceptrons_a_2,
-        },
-        ZAndA {
-            z: perceptrons_u_3,
-            a: perceptrons_a_3,
-        },
-    ]
+        result.push(ZAndA {
+            z: perceptrons_u,
+            a: perceptrons_a,
+        });
+    }
+    result
 }
 
 fn backward_prop(
@@ -192,6 +183,7 @@ fn backward_prop(
     let zaw_2 = &zaws[1];
     let zaw_3 = &zaws[2];
 
+    let perceptrons_0_a = x;
     let perceptrons_1 = &zaw_1.0;
     let perceptrons_2 = &zaw_2.0;
     let perceptrons_3 = &zaw_3.0;
@@ -204,83 +196,62 @@ fn backward_prop(
     let activation = Activation::LeakyRelu;
 
     // 3th layer (hidden)
-    let dz_3 = perceptrons_3.a.clone() - one_hot(y);
-    let dw_3 = dz_3.dot(&perceptrons_2.a.t()) / m as f64;
-    let db_3 = dz_3
+    let delta_perceptrons_u_3 = perceptrons_3.a.clone() - one_hot(y);
+    let delta_weights_3 = delta_perceptrons_u_3.dot(&perceptrons_2.a.t()) / m as f64;
+    let delta_biases_3 = delta_perceptrons_u_3
         .sum_axis(nd::Axis(1))
-        .into_shape((dz_3.shape()[0], 1))
+        .into_shape((delta_perceptrons_u_3.shape()[0], 1))
         .unwrap()
         / m;
 
     // 2th layer (hidden)
-    let dz_2 = weights_3.t().dot(&dz_3) * activation.backward(&perceptrons_2.z);
-    let dw_2 = dz_2.dot(&perceptrons_1.a.t()) / m as f64;
-    let db_2 = dz_2
+    let delta_perceptrons_u_2 =
+        weights_3.t().dot(&delta_perceptrons_u_3) * activation.backward(&perceptrons_2.z);
+    let delta_weights_2 = delta_perceptrons_u_2.dot(&perceptrons_1.a.t()) / m as f64;
+    let delta_bias_2 = delta_perceptrons_u_2
         .sum_axis(nd::Axis(1))
-        .into_shape((dz_2.shape()[0], 1))
+        .into_shape((delta_perceptrons_u_2.shape()[0], 1))
         .unwrap()
         / m;
 
     // 1th layer (input)
-    let dz_1 = weights_2.t().dot(&dz_2) * activation.backward(&perceptrons_1.z);
-    let dw_1 = dz_1.dot(&x.t()) / m as f64;
-    let db_1 = dz_1
+    let delta_perceptrons_u_1 =
+        weights_2.t().dot(&delta_perceptrons_u_2) * activation.backward(&perceptrons_1.z);
+    let delta_weights_1 = delta_perceptrons_u_1.dot(&perceptrons_0_a.t()) / m as f64;
+    let delta_bias_1 = delta_perceptrons_u_1
         .sum_axis(nd::Axis(1))
-        .into_shape((dz_1.shape()[0], 1))
+        .into_shape((delta_perceptrons_u_1.shape()[0], 1))
         .unwrap()
         / m;
 
     vec![
         WeightAndBias {
-            weight: dw_1,
-            bias: db_1,
+            weight: delta_weights_1,
+            bias: delta_bias_1,
         },
         WeightAndBias {
-            weight: dw_2,
-            bias: db_2,
+            weight: delta_weights_2,
+            bias: delta_bias_2,
         },
         WeightAndBias {
-            weight: dw_3,
-            bias: db_3,
+            weight: delta_weights_3,
+            bias: delta_biases_3,
         },
     ]
 }
 
 fn update_params(lds: &Vec<(WeightAndBias, WeightAndBias)>, alpha: f64) -> Vec<WeightAndBias> {
     assert_eq!(lds.len(), 3);
-    let l_1 = &lds[0].0;
-    let l_2 = &lds[1].0;
-    let l_3 = &lds[2].0;
-    let d_1 = &lds[0].1;
-    let d_2 = &lds[1].1;
-    let d_3 = &lds[2].1;
-
-    // 1th layer (hidden)
-    let weight_1 = l_1.weight.clone() - d_1.weight.clone() * alpha;
-    let bias_1 = l_1.bias.clone() - d_1.bias.clone() * alpha;
-
-    // 2th layer (hidden)
-    let weight_2 = l_2.weight.clone() - d_2.weight.clone() * alpha;
-    let bias_2 = l_2.bias.clone() - d_2.bias.clone() * alpha;
-
-    // 3th layer (output)
-    let weight_3 = l_3.weight.clone() - d_3.weight.clone() * alpha;
-    let bias_3 = l_3.bias.clone() - d_3.bias.clone() * alpha;
-
-    vec![
-        WeightAndBias {
-            weight: weight_1,
-            bias: bias_1,
-        },
-        WeightAndBias {
-            weight: weight_2,
-            bias: bias_2,
-        },
-        WeightAndBias {
-            weight: weight_3,
-            bias: bias_3,
-        },
-    ]
+    let mut result = Vec::new();
+    for ld in lds {
+        let weights = ld.0.weight.clone() - ld.1.weight.clone() * alpha;
+        let biases = ld.0.bias.clone() - ld.1.bias.clone() * alpha;
+        result.push(WeightAndBias {
+            weight: weights,
+            bias: biases,
+        });
+    }
+    result
 }
 
 fn get_mnist_data_2() -> ndarray::Array2<f64> {
@@ -359,7 +330,7 @@ fn main() {
 
     println!("x_train: {:?}", x_train.shape());
     println!("y_train: {:?}", y_train);
-    gradient_descent(&x_train, &y_train.map(|x| (*x as u64)), 0.01, 5000);
+    gradient_descent(&x_train, &y_train.map(|x| (*x as u64)), 0.1, 5000);
 }
 
 /* Here are some learning resources.
