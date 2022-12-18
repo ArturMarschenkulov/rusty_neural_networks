@@ -179,10 +179,9 @@ fn backward_prop(
     y: &nd::Array1<u64>,
 ) -> Vec<WeightAndBias> {
     use std::collections::VecDeque;
-    assert_eq!(zaws.len(), 3);
     let m = 784.0;
 
-    let mut last_delta_perceptrons_u = zaws[2].0.activated.clone() - one_hot(y);
+    let mut last_delta_perceptrons_u = zaws.last().unwrap().0.activated.clone() - one_hot(y);
 
     let mut delta_weights_and_biases = VecDeque::new();
     for (i, zaw) in zaws.iter().enumerate().rev() {
@@ -223,7 +222,6 @@ fn backward_prop(
 }
 
 fn update_params(lds: &Vec<(WeightAndBias, WeightAndBias)>, alpha: f64) -> Vec<WeightAndBias> {
-    assert_eq!(lds.len(), 3);
     let mut result = Vec::new();
     for (_, ld) in lds.iter().enumerate() {
         // assert_eq!(ld.0.weight.shape(), ld.1.weight.shape());
@@ -244,7 +242,9 @@ fn init_params() -> Vec<WeightAndBias> {
     let mut rng = rand::thread_rng();
     let range = -0.5..=0.5;
 
-    let layers_num = [784, 30, 20, 10];
+    // For right now, this array has to begin with 784 and end with 10. They represent the inpuit and output layer.
+    // Later this will be refactored to be more flexible.
+    let layers_num = [784, 10, 10];
 
     let mut weights_and_biases = Vec::new();
 
@@ -315,7 +315,7 @@ fn main() {
 
     println!("x_train: {:?}", x_train.shape());
     println!("y_train: {:?}", y_train);
-    gradient_descent(&x_train, &y_train.map(|x| (*x as u64)), 0.1, 5000);
+    gradient_descent(&x_train, &y_train.map(|x| (*x as u64)), 0.01, 5000);
 }
 
 /* Here are some learning resources.
