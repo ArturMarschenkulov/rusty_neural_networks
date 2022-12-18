@@ -180,40 +180,47 @@ fn backward_prop(
 ) -> Vec<WeightAndBias> {
     use std::collections::VecDeque;
     let m = 784.0;
+    let perceptrons = zaws
+        .iter()
+        .map(|(zaw, _)| zaw.clone())
+        .collect::<Vec<ZAndA>>();
+    let weights = zaws
+        .iter()
+        .map(|(_, weight)| weight.clone())
+        .collect::<Vec<nd::Array2<f64>>>();
 
-    let mut last_delta_perceptrons_u = zaws.last().unwrap().0.activated.clone() - one_hot(y);
+    let mut last_d_perceptrons_u = zaws.last().unwrap().0.activated.clone() - one_hot(y);
 
     let mut delta_weights_and_biases = VecDeque::new();
-    for (i, zaw) in zaws.iter().enumerate().rev() {
+    for (i, _) in zaws.iter().enumerate().rev() {
         let is_last = i == zaws.len() - 1;
         let is_first = i == 0;
-        let (zaw, _) = &zaws[i];
 
         let activation = Activation::LeakyRelu;
 
-        let delta_perceptrons_u = if is_last {
-            last_delta_perceptrons_u
+        let d_perceptrons_u = if is_last {
+            last_d_perceptrons_u
         } else {
-            zaws[i + 1].1.t().dot(&last_delta_perceptrons_u) * activation.backward(&zaw.unactivated)
+            weights[i + 1].t().dot(&last_d_perceptrons_u)
+                * activation.backward(&perceptrons[i].unactivated)
         };
-        let delta_weights = delta_perceptrons_u.dot(
-            &if is_first {
-                x
-            } else {
-                &zaws[i - 1].0.activated
-            }
-            .t(),
-        ) / m as f64;
-        let delta_biases = delta_perceptrons_u
+
+        let d_weights = if is_first {
+            d_perceptrons_u.dot(&x.t()) / m as f64
+        } else {
+            d_perceptrons_u.dot(&perceptrons[i - 1].activated.t()) / m as f64
+        };
+
+        let d_biases = d_perceptrons_u
             .sum_axis(nd::Axis(1))
-            .into_shape((delta_perceptrons_u.shape()[0], 1))
+            .into_shape((d_perceptrons_u.shape()[0], 1))
             .unwrap()
             / m;
 
-        last_delta_perceptrons_u = delta_perceptrons_u.clone();
+        last_d_perceptrons_u = d_perceptrons_u;
         delta_weights_and_biases.push_front(WeightAndBias {
-            weight: delta_weights,
-            bias: delta_biases,
+            weight: d_weights,
+            bias: d_biases,
         });
     }
 
@@ -221,7 +228,7 @@ fn backward_prop(
     delta_weights_and_biases.into_iter().collect()
 }
 
-fn update_params(lds: &Vec<(WeightAndBias, WeightAndBias)>, alpha: f64) -> Vec<WeightAndBias> {
+fn update_params(lds: &[(WeightAndBias, WeightAndBias)], alpha: f64) -> Vec<WeightAndBias> {
     let mut result = Vec::new();
     for (_, ld) in lds.iter().enumerate() {
         // assert_eq!(ld.0.weight.shape(), ld.1.weight.shape());
@@ -244,7 +251,7 @@ fn init_params() -> Vec<WeightAndBias> {
 
     // For right now, this array has to begin with 784 and end with 10. They represent the inpuit and output layer.
     // Later this will be refactored to be more flexible.
-    let layers_num = [784, 10, 10];
+    let layers_num = [784, 5, 10];
 
     let mut weights_and_biases = Vec::new();
 
@@ -319,9 +326,13 @@ fn main() {
 }
 
 /* Here are some learning resources.
-    https://www.kaggle.com/code/wwsalmon/simple-mnist-nn-from-scratch-numpy-no-tf-keras/notebook
-    https://www.youtube.com/watch?v=w8yWXqWQYmU
-    https://www.youtube.com/watch?v=9RN2Wr8xvro&t=463s
+    - https://www.kaggle.com/code/wwsalmon/simple-mnist-nn-from-scratch-numpy-no-tf-keras/notebook
+    - https://www.youtube.com/watch?v=w8yWXqWQYmU
+    - https://www.youtube.com/watch?v=9RN2Wr8xvro&t=463s
+
+    - http://neuralnetworksanddeeplearning.com/chap4.html
+    - https://explog.in/notes/funnn.html
+    - https://python-course.eu/machine-learning/neural-networks-structure-weights-and-matrices.php
 
 
     Rust github projects:
