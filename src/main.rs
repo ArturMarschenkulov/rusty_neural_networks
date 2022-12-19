@@ -52,15 +52,10 @@ fn main() {
     let train_pixels = data_train.slice(nd::s![1..n, ..]);
     let train_pixels = train_pixels.map(|x| *x / 255.0);
 
-    println!("x_train: {:?}", train_pixels.shape());
-    println!("y_train: {:?}", train_labels);
+    println!("train_pixels: {:?}", train_pixels.shape());
+    println!("train_labels: {:?}", train_labels);
     let mut network = Network::new();
-    network.gradient_descent(
-        &train_pixels,
-        &train_labels.map(|x| (*x as u64)),
-        0.01,
-        5000,
-    );
+    network.gradient_descent(&train_pixels, &train_labels.map(|x| *x as u64), 0.01, 5000);
 
     let prediction = network.make_prediction(&test_pixels);
     let accuracy = get_accuracy(&prediction, &test_labels.map(|x| (*x as u64)));

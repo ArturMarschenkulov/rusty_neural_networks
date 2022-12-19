@@ -1,5 +1,6 @@
 use ndarray as nd;
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Activation {
     Relu,
     LeakyRelu,
