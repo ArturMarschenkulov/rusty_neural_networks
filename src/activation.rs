@@ -11,7 +11,7 @@ pub enum Activation {
 impl Activation {
     pub fn forward(&self, x: &nd::Array2<f64>) -> nd::Array2<f64> {
         match self {
-            Activation::Relu => x.map(|x| x.max(0.0)),
+            Activation::Relu => x.map(|x| if x > &0.0 { *x } else { 0.0 }),
             Activation::LeakyRelu => x.map(|x| if x > &0.0 { *x } else { 0.01 * *x }),
             Activation::Identity => x.map(|x| *x),
             Activation::Sigmoid => x.map(|x| 1.0 / (1.0 + std::f64::consts::E.powf(-*x))),

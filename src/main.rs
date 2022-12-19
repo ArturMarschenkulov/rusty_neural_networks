@@ -54,12 +54,17 @@ fn main() {
 
     println!("x_train: {:?}", train_pixels.shape());
     println!("y_train: {:?}", train_labels);
-    gradient_descent(
+    let mut network = Network::new();
+    network.gradient_descent(
         &train_pixels,
         &train_labels.map(|x| (*x as u64)),
         0.01,
         5000,
     );
+
+    let prediction = network.make_prediction(&test_pixels);
+    let accuracy = get_accuracy(&prediction, &test_labels.map(|x| (*x as u64)));
+    print!("Accuracy: {}", accuracy);
 }
 
 /* Here are some learning resources.
