@@ -27,7 +27,15 @@ fn get_mnist_data_2() -> ndarray::Array2<f64> {
 
 fn main() {
     // Enable RUST_BACKTRACE=1 to see the backtrace
+    // create a 2D array of f64 from a 2D array of u64
+
     std::env::set_var("RUST_BACKTRACE", "1");
+    let ss = nd::Array2::<f64>::from_shape_vec((4, 1), vec![1., 2., 3., 4.]).unwrap();
+    // use crate::activation::*;
+    // println!("ss: {:?}", ss);
+    // println!("softmax(&ss): {:?}", softmax(&ss));
+    // println!("ss: {:?}", softmax_derivative(&softmax(&ss)));
+
 
     let mnist_pics = get_mnist_data_2();
 
@@ -48,7 +56,8 @@ fn main() {
 
     let mnist_pics_train = mnist_pics.slice(nd::s![dev_size..m as i32, ..]);
     let data_train = mnist_pics_train.t();
-    let train_labels = data_train.slice(nd::s![0, ..]);
+    let train_labels = data_train.slice(nd::s![0, ..]).map(|x| *x as u64);
+    let train_labels = one_hot(&train_labels);
     let train_pixels = data_train.slice(nd::s![1..n, ..]);
     let train_pixels = train_pixels.map(|x| *x / 255.0);
 
@@ -57,9 +66,9 @@ fn main() {
     let mut network = Network::new();
     network.gradient_descent(&train_pixels, &train_labels.map(|x| *x as u64), 0.01, 5000);
 
-    let prediction = network.make_prediction(&test_pixels);
-    let accuracy = get_accuracy(&prediction, &test_labels.map(|x| (*x as u64)));
-    print!("Accuracy: {}", accuracy);
+    // let prediction = network.make_prediction(&test_pixels);
+    // let accuracy = get_accuracy(&prediction, &test_labels.map(|x| (*x as u64)));
+    // print!("Accuracy: {}", accuracy);
 }
 
 /* Here are some learning resources.
